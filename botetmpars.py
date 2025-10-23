@@ -25,7 +25,11 @@ logger = logging.getLogger(__name__)
 TOKEN = os.environ.get("BOT_TOKEN")
 if not TOKEN:
     logger.error("❌ ОШИБКА: BOT_TOKEN не установлен в переменных окружения!")
-    logger.error("Добавьте BOT_TOKEN в настройки Render: Environment → Environment Variables")
+    logger.error("📝 Добавьте BOT_TOKEN в настройки Render:")
+    logger.error("   1. Зайдите в Dashboard Render")
+    logger.error("   2. Выберите ваш сервис")
+    logger.error("   3. Перейдите в Environment → Environment Variables")
+    logger.error("   4. Добавьте BOT_TOKEN и ваш токен бота")
     sys.exit(1)
 
 # Настройки для Render
