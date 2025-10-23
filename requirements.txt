@@ -1,5 +1,6 @@
-python-telegram-bot==21.0
+python-telegram-bot==13.15
 requests==2.31.0
 beautifulsoup4==4.12.2
 starlette==0.27.0
 uvicorn==0.20.0
+aiofiles==23.2.1
