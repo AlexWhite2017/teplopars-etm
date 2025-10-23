@@ -3,6 +3,7 @@ import logging
 import requests
 import json
 import asyncio
+import sys
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -20,8 +21,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Безопасное получение токена с проверкой
+TOKEN = os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    logger.error("❌ ОШИБКА: BOT_TOKEN не установлен в переменных окружения!")
+    logger.error("Добавьте BOT_TOKEN в настройки Render: Environment → Environment Variables")
+    sys.exit(1)
+
 # Настройки для Render
-TOKEN = os.environ["BOT_TOKEN"]
 PORT = int(os.environ.get("PORT", 8000))
 WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL", "") + "/webhook"
 
@@ -47,7 +54,7 @@ class PriceMonitor:
         self.category_url = "https://www.etm.ru/catalog/6040_obogrevatelnye_pribory"
     
     def parse_products(self):
-        """Парсинг товаров из категории обогревательных приборов"""
+        """Парсинг товаров из категории обогревательных приборы"""
         try:
             logger.info("Начинаем парсинг цен с etm.ru...")
             
@@ -57,12 +64,8 @@ class PriceMonitor:
             soup = BeautifulSoup(response.text, 'html.parser')
             products = []
             
-            # Ищем карточки товаров - эти селекторы могут потребовать адаптации
-            product_cards = soup.select('.catalog-item, .product-card, .item')
-            
-            if not product_cards:
-                # Альтернативные селекторы
-                product_cards = soup.select('[data-product-id], .js-product')
+            # Ищем карточки товаров
+            product_cards = soup.select('.catalog-item, .product-card, .item, [data-product-id], .js-product')
             
             logger.info(f"Найдено карточек товаров: {len(product_cards)}")
             
@@ -81,7 +84,6 @@ class PriceMonitor:
                         continue
                     
                     price_text = price_elem.get_text(strip=True)
-                    # Очищаем цену от лишних символов
                     price = self.clean_price(price_text)
                     
                     # Извлекаем ссылку на товар
@@ -90,7 +92,7 @@ class PriceMonitor:
                     if product_link and not product_link.startswith('http'):
                         product_link = self.base_url + product_link
                     
-                    # Извлекаем артикул/ID товара
+                    # Генерируем ID товара
                     product_id = card.get('data-product-id') or card.get('id') or self.generate_product_id(product_name)
                     
                     if product_name and price > 0:
@@ -116,11 +118,8 @@ class PriceMonitor:
     def clean_price(self, price_text):
         """Очистка и преобразование цены в число"""
         try:
-            # Удаляем все символы кроме цифр и запятой/точки
             cleaned = ''.join(c for c in price_text if c.isdigit() or c in ',.')
-            # Заменяем запятую на точку для float преобразования
             cleaned = cleaned.replace(',', '.').replace(' ', '')
-            # Берем только первую цену если их несколько
             if 'р' in cleaned.lower():
                 cleaned = cleaned.split('р')[0]
             return float(cleaned)
@@ -178,7 +177,6 @@ class PriceMonitor:
                 if previous_price > 0:
                     change_percent = ((current_price - previous_price) / previous_price) * 100
                     
-                    # Если изменение больше 10% в любую сторону
                     if abs(change_percent) >= 10:
                         changes.append({
                             'name': product['name'],
@@ -241,10 +239,8 @@ async def check_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Не удалось загрузить цены. Попробуйте позже.")
             return
         
-        # Сохраняем текущие цены
         price_monitor.save_current_prices(products)
         
-        # Формируем сообщение с топ-5 товаров
         message = "📊 *Текущие цены на обогревательные приборы:*\n\n"
         
         for i, product in enumerate(products[:5], 1):
@@ -267,27 +263,22 @@ async def monitor_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔍 Проверяю изменения цен...")
     
     try:
-        # Получаем текущие цены
         current_products = price_monitor.parse_products()
         
         if not current_products:
             await update.message.reply_text("❌ Не удалось загрузить текущие цены.")
             return
         
-        # Сохраняем текущие цены
         price_monitor.save_current_prices(current_products)
-        
-        # Проверяем изменения
         changes = price_monitor.check_price_changes(current_products)
         
         if not changes:
             await update.message.reply_text("✅ Значительных изменений цен не обнаружено.")
             return
         
-        # Формируем сообщение об изменениях
         message = "🚨 *Обнаружены изменения цен!*\n\n"
         
-        for change in changes[:10]:  # Ограничиваем 10 изменениями
+        for change in changes[:10]:
             direction = "📈" if change['change_percent'] > 0 else "📉"
             message += f"{direction} *{change['name']}*\n"
             message += f"   Было: {change['previous_price']} руб.\n"
@@ -309,21 +300,17 @@ async def monitor_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_prices_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Выгрузка файла с данными цен"""
     try:
-        # Проверяем существование файла
         if not os.path.exists(PRICES_FILE):
             await update.message.reply_text("❌ Файл с ценами еще не создан. Сначала выполните команду /check")
             return
         
-        # Читаем и проверяем файл
         with open(PRICES_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        # Создаем временный файл с красивым форматированием
         temp_filename = f"prices_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(temp_filename, 'w', encoding='utf-8') as temp_file:
             json.dump(data, temp_file, ensure_ascii=False, indent=2, sort_keys=True)
         
-        # Отправляем файл пользователю
         with open(temp_filename, 'rb') as file_to_send:
             await update.message.reply_document(
                 document=file_to_send,
@@ -331,10 +318,8 @@ async def get_prices_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption="📄 Файл с данными о ценах на обогревательные приборы"
             )
         
-        # Удаляем временный файл
         os.remove(temp_filename)
         
-        # Дополнительная информация о данных
         stats_message = (
             f"📊 *Статистика данных:*\n"
             f"• Товаров в базе: {len(data)}\n"
@@ -343,14 +328,11 @@ async def get_prices_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(stats_message, parse_mode='Markdown')
         
-    except json.JSONDecodeError as e:
-        logger.error(f"Ошибка формата JSON: {e}")
-        await update.message.reply_text("❌ Ошибка в формате файла цен.")
     except Exception as e:
         logger.error(f"Ошибка при выгрузке файла: {e}")
         await update.message.reply_text("❌ Произошла ошибка при выгрузке файла.")
 
-# ===== ВЕБХУК ЭНДПОИНТЫ ДЛЯ RENDER =====
+# ===== ВЕБХУК ЭНДПОИНТЫ =====
 async def webhook(request: Request) -> Response:
     """Эндпоинт для вебхуков от Telegram"""
     try:
@@ -388,24 +370,17 @@ async def main():
     """Основная функция запуска"""
     logger.info("🔄 Инициализация бота мониторинга цен...")
     
-    # Регистрируем обработчики
     setup_handlers()
-    
-    # Запускаем приложение
     await application.initialize()
     await application.start()
-    
-    # Устанавливаем вебхук
     await set_webhook()
     
-    # Создаем Starlette приложение
     starlette_app = Starlette(routes=[
         Route("/webhook", webhook, methods=["POST"]),
         Route("/healthcheck", health_check, methods=["GET"]),
         Route("/", health_check, methods=["GET"]),
     ])
     
-    # Запускаем сервер
     config = uvicorn.Config(
         app=starlette_app,
         host="0.0.0.0",
