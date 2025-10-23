@@ -35,8 +35,13 @@ WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL", "") + "/webhook"
 # Файл для хранения цен
 PRICES_FILE = "prices.json"
 
-# Создаем приложение Telegram
-application = Application.builder().token(TOKEN).build()
+# Создаем приложение Telegram (исправленная версия)
+try:
+    application = Application.builder().token(TOKEN).build()
+    logger.info("✅ Приложение Telegram успешно создано")
+except Exception as e:
+    logger.error(f"❌ Ошибка при создании приложения: {e}")
+    sys.exit(1)
 
 class PriceMonitor:
     """Мониторинг цен на обогревательные приборы с etm.ru"""
@@ -54,7 +59,7 @@ class PriceMonitor:
         self.category_url = "https://www.etm.ru/catalog/6040_obogrevatelnye_pribory"
     
     def parse_products(self):
-        """Парсинг товаров из категории обогревательных приборы"""
+        """Парсинг товаров из категории обогревательные приборы"""
         try:
             logger.info("Начинаем парсинг цен с etm.ru...")
             
@@ -351,10 +356,13 @@ async def health_check(request: Request) -> PlainTextResponse:
 async def set_webhook():
     """Установка вебхука при запуске"""
     if WEBHOOK_URL:
-        await application.bot.set_webhook(url=f"{WEBHOOK_URL}")
-        logger.info(f"Вебхук установлен: {WEBHOOK_URL}")
+        try:
+            await application.bot.set_webhook(url=f"{WEBHOOK_URL}")
+            logger.info(f"✅ Вебхук установлен: {WEBHOOK_URL}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка установки вебхука: {e}")
     else:
-        logger.warning("RENDER_EXTERNAL_URL не установлен, вебхук не настроен")
+        logger.warning("⚠️ RENDER_EXTERNAL_URL не установлен, вебхук не настроен")
 
 # ===== РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ =====
 def setup_handlers():
@@ -364,33 +372,47 @@ def setup_handlers():
     application.add_handler(CommandHandler("check", check_prices))
     application.add_handler(CommandHandler("monitor", monitor_prices))
     application.add_handler(CommandHandler("get_prices", get_prices_file))
+    logger.info("✅ Все обработчики команд зарегистрированы")
 
 # ===== ЗАПУСК ПРИЛОЖЕНИЯ =====
 async def main():
     """Основная функция запуска"""
-    logger.info("🔄 Инициализация бота мониторинга цен...")
-    
-    setup_handlers()
-    await application.initialize()
-    await application.start()
-    await set_webhook()
-    
-    starlette_app = Starlette(routes=[
-        Route("/webhook", webhook, methods=["POST"]),
-        Route("/healthcheck", health_check, methods=["GET"]),
-        Route("/", health_check, methods=["GET"]),
-    ])
-    
-    config = uvicorn.Config(
-        app=starlette_app,
-        host="0.0.0.0",
-        port=PORT,
-        log_level="info"
-    )
-    server = uvicorn.Server(config)
-    
-    logger.info(f"🤖 Бот мониторинга цен запущен на порту {PORT}")
-    await server.serve()
+    try:
+        logger.info("🔄 Инициализация бота мониторинга цен...")
+        
+        setup_handlers()
+        
+        await application.initialize()
+        await application.start()
+        logger.info("✅ Приложение Telegram инициализировано и запущено")
+        
+        await set_webhook()
+        
+        # Создаем Starlette приложение
+        starlette_app = Starlette(routes=[
+            Route("/webhook", webhook, methods=["POST"]),
+            Route("/healthcheck", health_check, methods=["GET"]),
+            Route("/", health_check, methods=["GET"]),
+        ])
+        
+        # Запускаем сервер
+        config = uvicorn.Config(
+            app=starlette_app,
+            host="0.0.0.0",
+            port=PORT,
+            log_level="info"
+        )
+        server = uvicorn.Server(config)
+        
+        logger.info(f"🤖 Бот мониторинга цен запущен на порту {PORT}")
+        logger.info(f"🌐 Вебхук URL: {WEBHOOK_URL}")
+        
+        await server.serve()
+        
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка при запуске: {e}")
+        await application.stop()
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
