@@ -35,7 +35,7 @@ WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL", "") + "/webhook"
 # Файл для хранения цен
 PRICES_FILE = "prices.json"
 
-# Создаем приложение Telegram (исправленная версия)
+# Создаем приложение Telegram
 try:
     application = Application.builder().token(TOKEN).build()
     logger.info("✅ Приложение Telegram успешно создано")
